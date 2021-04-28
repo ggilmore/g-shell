@@ -1,4 +1,4 @@
-# Kickstart ![CI](https://github.com/ggilmore/kickstart/workflows/CI/badge.svg)
+# Kickstart ![CI](https://github.com/ggilmore/g-shell/workflows/CI/badge.svg)
 
 Kickstart is my personal template repository that bootstaps:
 
