@@ -14,6 +14,10 @@ let dhallCheck = ./jobs/dhall-check.dhall
 
 let prettier = ./jobs/prettier.dhall
 
+let golangci-lint = ./jobs/golangci-lint.dhall
+
+let goTest = ./jobs/go-test.dhall
+
 in  GitHubActions.Workflow::{
     , name = "CI"
     , on = GitHubActions.On::{ push = Some GitHubActions.Push::{=} }
@@ -25,5 +29,7 @@ in  GitHubActions.Workflow::{
         , dhallLint
         , checkPipeline
         , prettier
+        , golangci-lint
+        , goTest
         }
     }
