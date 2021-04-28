@@ -6,12 +6,11 @@ render-ci-pipeline:
     ./scripts/render-ci-pipeline.sh
 
 fmt: format
-
 format: format-dhall prettier format-shfmt
 
 lint: lint-dhall shellcheck
 
-check: check-dhall
+check: check-dhall test
 
 prettier:
     yarn run prettier
@@ -30,6 +29,14 @@ shellcheck:
 
 format-shfmt:
     shfmt -w .
+
+format-golang:
+    ./scripts/go-fmt.sh
+
+test: test-golang
+
+test-golang:
+    ./scripts/go-test.sh
 
 install:
     just install-asdf
