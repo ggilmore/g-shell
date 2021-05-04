@@ -16,9 +16,7 @@ type itemType int
 
 const (
 	itemString itemType = iota
-	itemText
-
-	itemAnd
+	itemQuotedString
 
 	itemError
 
@@ -36,8 +34,8 @@ type lexer struct {
 	start int    // start position of this item
 	pos   int    // current position in the input
 
-	width int         // width of last rune read
-	items (chan item) // channel of scanned item
+	width int       // width of last rune read
+	items chan item // channel of scanned items
 }
 
 func lex(name, input string) (*lexer, chan item) {
@@ -90,22 +88,7 @@ func (l *lexer) peek() rune {
 	return r
 }
 
-// func (l *lexer) accept(valid string) bool {
-// 	if strings.IndexRune(valid, l.next()) >= 0 {
-// 		return true
-// 	}
-// 	l.backup()
-// 	return false
-// }
-
-// func (l *lexer) acceptRune(valid string) {
-// 	for strings.IndexRune(valid, l.next()) >= {
-// 	}
-// 	l.backup()
-// }
-
 func (l *lexer) errorf(format string, args ...interface{}) stateFn {
-
 	l.items <- item{
 		itemError,
 		fmt.Sprintf(format, args...),
@@ -113,10 +96,13 @@ func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 
 	return nil
 }
+
+// skip over whitespace, emit next tokens
 func lexText(l *lexer) stateFn {
 	l.width = 0
 
 	r := l.next()
+
 	if isSpace(r) {
 		l.ignore()
 		return lexText
@@ -127,39 +113,39 @@ func lexText(l *lexer) stateFn {
 		return nil
 	}
 
+	if r == '"' {
+		return lexQuoted
+	}
+
 	l.backup()
 	return lexToken
+
 }
 
-// func lexSpace(l *lexer) stateFn {
-// 	var r rune
-// 	for {
-// 		r = l.peek()
-// 		if !isSpace(r) {
-// 			break
-// 		}
-// 		l.next()
-
-// 	}
-
-// 	l.emit(itemSpace)
-// 	return nil
-// }
-
 func lexToken(l *lexer) stateFn {
-
 	for {
 		switch r := l.next(); {
 		case isAlphaNumeric(r):
 			// collect
 		default:
 			l.backup()
-			// word := l.input[l.start:l.pos]
 			if !l.atTerminator() {
 				return l.errorf("bad character %#U", r)
 			}
 
 			l.emit(itemString)
+			return lexText
+		}
+	}
+}
+
+func lexQuoted(l *lexer) stateFn {
+	for {
+		switch l.next() {
+		case EOF:
+			return l.errorf("unterminated quoted string")
+		case '"':
+			l.emit(itemQuotedString)
 			return lexText
 		}
 	}
@@ -172,7 +158,6 @@ func (l *lexer) atTerminator() bool {
 	}
 
 	return r == EOF
-
 }
 
 func isAlphaNumeric(r rune) bool {

@@ -7,7 +7,6 @@ import (
 )
 
 func TestLexer(t *testing.T) {
-
 	for _, test := range []struct {
 		name     string
 		input    string
@@ -55,8 +54,26 @@ func TestLexer(t *testing.T) {
 				},
 			},
 		},
-	} {
 
+		{
+			name:  "quoted",
+			input: "foo \"bar baz\"",
+			expected: []item{
+				{
+					Type:  itemString,
+					Value: "foo",
+				},
+				{
+					Type:  itemQuotedString,
+					Value: "\"bar baz\"",
+				},
+
+				{
+					Type: itemEOF,
+				},
+			},
+		},
+	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, items := lex("test lexer", test.input)
 			actual := drain(t, items)
