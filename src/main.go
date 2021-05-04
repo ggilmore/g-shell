@@ -2,130 +2,92 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"flag"
 	"fmt"
-	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 )
 
-const PROMPT = "(g-shell)> "
-
 var command string
-
-type Shell struct {
-	interactive bool
-
-	cf CommandFinder
-}
 
 func main() {
 	flag.StringVar(&command, "c", "", command)
 	flag.Parse()
 
-	s := Shell{
-		interactive: true,
-		cf:          &CommandStore{},
-	}
-
-	var from io.Reader = os.Stdin
-	var to io.Writer = os.Stdout
+	var opts []ShellOption
 
 	if isFlagPassed("c") {
-		s.interactive = false
-		from = strings.NewReader(command)
+		opts = append(opts, NonInteractive(command))
 	}
 
-	s.Run(from, to)
+	s := NewShell(opts...)
+	s.Run()
 }
 
-func (s *Shell) Run(r io.Reader, w io.Writer) {
+func (s *shell) Run() {
 	var wg sync.WaitGroup
 
 	inputs := make(chan string)
-	outputs := make(chan string)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-
-		s.runCommand(inputs, outputs)
+		s.runCommand(inputs)
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	s.PrintPrompt()
 
-		s.output(w, outputs)
-	}()
-
-	s.tokenize(r, inputs)
+	s.tokenize(inputs)
 	wg.Wait()
 }
 
-func (s *Shell) output(to io.Writer, outputs chan string) {
-	w := bufio.NewWriter(to)
+func (s *shell) runCommand(inputs chan string) {
+	errWriter := bufio.NewWriter(s.Stderr)
 
-	if s.interactive {
-		fmt.Fprint(w, PROMPT)
-		w.Flush()
+	writeErr := func(e error) {
+		errWriter.WriteString(fmt.Sprintln(e.Error()))
+		errWriter.Flush()
+
+		s.PrintPrompt()
 	}
 
-	for out := range outputs {
-		fmt.Fprintln(w, out)
-		w.Flush()
-
-		if s.interactive {
-			fmt.Fprint(w, PROMPT)
-			w.Flush()
-		}
-	}
-}
-
-func (s *Shell) runCommand(inputs, outputs chan string) {
 	for input := range inputs {
 		fields := strings.Fields(input)
 
 		if len(fields) == 0 {
-			outputs <- ""
+			s.PrintPrompt()
 			continue
 		}
 
 		cmd := fields[0]
-		rest := fields[1:]
 
 		c, err := s.cf.Lookup(cmd)
 		if err != nil {
-			outputs <- err.Error()
+			writeErr(err)
 			continue
 		}
 
-		var w bytes.Buffer
-
-		args := append([]string{cmd}, rest...)
-
-		err = c.Run(&w, args...)
+		rest := fields[1:]
+		err = c.Run(s.Stdout, s.Stderr, rest...)
 		if err != nil {
-			outputs <- err.Error()
-			continue
+			if _, ok := err.(*exec.ExitError); !ok {
+				writeErr(err)
+			}
 		}
 
-		outputs <- w.String()
+		s.PrintPrompt()
 	}
-
-	close(outputs)
 }
 
-func (s *Shell) tokenize(r io.Reader, to chan string) {
-	scanner := bufio.NewScanner(r)
+func (s *shell) tokenize(to chan string) {
+	scanner := bufio.NewScanner(s.Stdin)
 
 	for scanner.Scan() {
 		input := scanner.Text()
 		to <- input
 	}
+
 	close(to)
 }
 
@@ -137,52 +99,4 @@ func isFlagPassed(name string) bool {
 		}
 	})
 	return found
-}
-
-type CommandStore struct {
-}
-
-func (c *CommandStore) Lookup(name string) (Command, error) {
-	path, err := exec.LookPath(name)
-	if err != nil {
-		if err == exec.ErrNotFound {
-			return nil, CommandMissingError{name}
-		}
-
-		return nil, fmt.Errorf("while looking up %q: %s", name, err)
-	}
-
-	return &NormalCommand{path}, nil
-}
-
-type NormalCommand struct {
-	name string
-}
-
-func (c *NormalCommand) Run(out io.Writer, args ...string) error {
-	if len(args) > 0 {
-		args = args[1:]
-	}
-
-	cmd := exec.Command(c.name, args...)
-	cmd.Stdout = out
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
-}
-
-type CommandFinder interface {
-	Lookup(name string) (Command, error)
-}
-
-type Command interface {
-	Run(out io.Writer, args ...string) error
-}
-
-type CommandMissingError struct {
-	name string
-}
-
-func (c CommandMissingError) Error() string {
-	return fmt.Sprintf("%q: command not found", c.name)
 }

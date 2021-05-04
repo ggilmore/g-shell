@@ -1,79 +1,49 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
+	"fmt"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestEchoInteractive(t *testing.T) {
-	t.Skip("this is disabled - only useful as a motivating example")
-	inputs := []string{"hello", "my", "name", "is", "geoffrey"}
-
-	expected := []string{PROMPT}
-	for _, input := range inputs {
-		expected = append(expected, []string{input, "\n", PROMPT}...)
-	}
-
-	var actual bytes.Buffer
-
-	s := Shell{
-		interactive: true,
-	}
-
-	s.Run(strings.NewReader(strings.Join(inputs, "\n")), &actual)
-
-	if diff := cmp.Diff(strings.Join(expected, ""), actual.String()); diff != "" {
-		t.Errorf("non-zero diff (-want +got):\n%s", diff)
-	}
-
-}
-
-func TestEchoNonInteractive(t *testing.T) {
-	t.Skip("this is disabled - only useful as a motivating example")
-	input := "hello"
-	expected := "hello\n"
-
-	var actual bytes.Buffer
-
-	s := Shell{}
-
-	s.Run(strings.NewReader(input), &actual)
-
-	if diff := cmp.Diff(expected, actual.String()); diff != "" {
-		t.Errorf("non-zero diff (-want +got):\n%s", diff)
-	}
-
-}
-
 type spyCommand struct {
 	executed  bool
 	arguments []string
 
-	output string
-	err    error
+	stdout string
+	stderr string
+
+	err error
 }
 
-func (sc *spyCommand) Run(out io.Writer, args ...string) error {
+func (sc *spyCommand) Run(stdout, stderr io.Writer, args ...string) error {
 	sc.executed = true
 	sc.arguments = args
 
-	w := bufio.NewWriter(out)
-	w.WriteString(sc.output)
-	w.Flush()
+	if sc.stdout != "" {
+		if _, err := stdout.Write([]byte(sc.stdout)); err != nil {
+			return fmt.Errorf("when writing stdout: %w", err)
+		}
+
+	}
+
+	if sc.stderr != "" {
+		if _, err := stderr.Write([]byte(sc.stderr)); err != nil {
+			return fmt.Errorf("when writing stderr: %w", err)
+		}
+
+	}
 
 	return sc.err
 }
 
-// This really is a builtin....
-// Not sure if it's worth unit testing the fork + exec process explicitly - I could mock a strategy for finding non-builtins though...
 func TestCommandRan(t *testing.T) {
 	sc := &spyCommand{
-		output: "spy ran",
+		stdout: "spy ran",
+		stderr: "but there was also a warning",
 	}
 
 	var cf CommandFinder = &MockCommandFinder{
@@ -82,26 +52,39 @@ func TestCommandRan(t *testing.T) {
 		},
 	}
 
-	s := Shell{
-		cf: cf,
-	}
+	var actualStdout bytes.Buffer
+	var actualStderr bytes.Buffer
 
-	var output bytes.Buffer
+	input := "spy hello"
 
-	s.Run(strings.NewReader("spy hello"), &output)
+	s := NewShell(
+		WithCommandFinder(cf),
+		NonInteractive(input),
+		WithStderr(&actualStderr),
+		WithStdout(&actualStdout),
+	)
+
+	s.Run()
 
 	if !sc.executed {
 		t.Errorf("spy command never ran")
 	}
 
-	if diff := cmp.Diff([]string{"spy", "hello"}, sc.arguments); diff != "" {
+	expectedArgs := []string{"hello"}
+	if diff := cmp.Diff(expectedArgs, sc.arguments); diff != "" {
 		t.Errorf("unexpected spy arguments (-got +want)\n%s", diff)
 	}
 
-	if diff := cmp.Diff("spy ran\n", output.String()); diff != "" {
-		t.Errorf("unexpected output (-want +got)\n%s", diff)
-	}
+	assertOutput(t, "stdout", "spy ran", actualStdout)
+	assertOutput(t, "stderr", "but there was also a warning", actualStderr)
+}
 
+func assertOutput(t *testing.T, name, expected string, actual bytes.Buffer) {
+	t.Helper()
+
+	if diff := cmp.Diff(expected, actual.String()); diff != "" {
+		t.Errorf("unexpected %s output (-want +got)\n%s", name, diff)
+	}
 }
 
 type MockCommandFinder struct {
@@ -111,7 +94,7 @@ type MockCommandFinder struct {
 func (cf *MockCommandFinder) Lookup(name string) (Command, error) {
 	c, present := cf.commands[name]
 	if !present {
-		return nil, CommandMissingError{name}
+		return nil, &CommandNotFoundError{name: name}
 	}
 
 	return c, nil
