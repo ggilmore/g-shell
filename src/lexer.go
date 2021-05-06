@@ -18,6 +18,10 @@ const (
 	itemString itemType = iota
 	itemQuotedString
 
+	itemAnd
+
+	itemSpace
+
 	itemError
 
 	itemEOF
@@ -97,15 +101,14 @@ func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 	return nil
 }
 
-// skip over whitespace, emit next tokens
 func lexText(l *lexer) stateFn {
 	l.width = 0
 
 	r := l.next()
 
 	if isSpace(r) {
-		l.ignore()
-		return lexText
+		l.backup()
+		return lexSpace
 	}
 
 	if r == EOF {
@@ -119,13 +122,12 @@ func lexText(l *lexer) stateFn {
 
 	l.backup()
 	return lexToken
-
 }
 
 func lexToken(l *lexer) stateFn {
 	for {
 		switch r := l.next(); {
-		case isAlphaNumeric(r):
+		case isWordChar(r):
 			// collect
 		default:
 			l.backup()
@@ -151,17 +153,56 @@ func lexQuoted(l *lexer) stateFn {
 	}
 }
 
+func lexSpace(l *lexer) stateFn {
+	for {
+		r := l.next()
+
+		if !isSpace(r) {
+			l.backup()
+			l.emit(itemSpace)
+			return lexText
+		}
+	}
+}
+
 func (l *lexer) atTerminator() bool {
 	r := l.peek()
 	if isSpace(r) {
 		return true
 	}
 
+	// if isControlCharacter(r) {
+	// 	return true
+	// }
+
 	return r == EOF
 }
 
-func isAlphaNumeric(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r)
+func isWordChar(r rune) bool {
+	if r == EOF {
+		return false
+	}
+
+	return !isControlCharacter(r)
+}
+
+func isControlCharacter(r rune) bool {
+	// See https://www.gnu.org/software/bash/manual/bash.html
+	if r == EOF {
+		return false
+	}
+
+	if isSpace(r) {
+		return true
+	}
+
+	for _, c := range []rune{'&'} {
+		if r == c {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isSpace(r rune) bool {
